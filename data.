@@ -1,0 +1,631 @@
+    45			__acrt_iob_func :: proc (index: uint) -> ^FILE ---
+    46		}
+    47	
+    48		stdin  := __acrt_iob_func(0)
+    49		stdout := __acrt_iob_func(1)
+    50		stderr := __acrt_iob_func(2)
+    51	}
+    52	
+    53	// GLIBC and MUSL compatible.
+    54	when ODIN_OS == .Linux {
+    55		fpos_t        :: struct #raw_union { _: [16]char, _: longlong, _: double, }
+    38	make_iterator :: proc (ba: ^Bit_Array) -> (it: Bit_Array_Iterator) {
+    39		return Bit_Array_Iterator { array = ba }
+    40	}
+    41	
+    42	/*
+    43		In:
+    44			- it:    ^Bit_Array_Iterator - the iterator struct that holds the state.
+    45	
+    46		Out:
+    47			- set:    bool - the state of the bit at `index`
+    48			- index:  int - the next bit of the Bit_Array referenced by `it`.
+--
+   140	get :: proc(ba: ^Bit_Array, #any_int index: uint, allocator := context.allocator) -> (res: bool, ok: bool) {
+   141		idx := int(index) - ba.bias
+   142	
+   143		if ba == nil || int(index) < ba.bias { return false, false }
+   144		context.allocator = allocator
+   145	
+   146		leg_index := idx >> INDEX_SHIFT
+   147		bit_index := idx &  INDEX_MASK
+   148	
+--
+   238		mem.zero_slice(ba.bits[:])
+--
+   244	destroy :: proc(ba: ^Bit_Array) {
+   245		if ba == nil { return }
+   246		delete(ba.bits)
+   247		if ba.free_pointer { // Only free if this Bit_Array was created using `create`, not when on the stack.
+   248			free(ba)
+    52	iterate_by_all :: proc (it: ^Bit_Array_Iterator) -> (set: bool, index: int, ok: bool) {
+    53		index = it.word_idx * NUM_BITS + int(it.bit_idx) + it.array.bias
+    54		if index > it.array.max_index { return false, 0, false }
+    55	
+    56		word := it.array.bits[it.word_idx] if len(it.array.bits) > it.word_idx else 0
+    57		set = (word >> it.bit_idx & 1) == 1
+    58	
+    59		it.bit_idx += 1
+    60		if it.bit_idx >= NUM_BITS {
+    61			it.bit_idx = 0
+    62			it.word_idx += 1
+--
+   257	resize_if_needed :: proc(ba: ^Bit_Array, legs: int, allocator := context.allocator) -> (ok: bool) {
+   258		if ba == nil { return false }
+   259	
+   260		context.allocator = allocator
+   261	
+   262		if legs + 1 > len(ba.bits) {
+    77	iterate_by_set :: proc (it: ^Bit_Array_Iterator) -> (index: int, ok: bool) {
+    78		return iterate_internal_(it, true)
+    79	}
+    80	
+    81	/*
+    82		In:
+    83			- it:	  ^Bit_Array_Iterator - the iterator struct that holds the state.
+    84	
+    85		Out:
+    86			- index:  int - the next unset bit of the Bit_Array referenced by `it`.
+    87			- ok:	  bool - `true` if the iterator returned a valid index,
+    95	iterate_internal_ :: proc (it: ^Bit_Array_Iterator, $ITERATE_SET_BITS: bool) -> (index: int, ok: bool) {
+    96		word := it.array.bits[it.word_idx] if len(it.array.bits) > it.word_idx else 0
+    97		when ! ITERATE_SET_BITS { word = ~word }
+    98	
+    99		// if the word is empty or we have already gone over all the bits in it,
+   100		// b.bit_idx is greater than the index of any set bit in the word,
+   101		// meaning that word >> b.bit_idx == 0.
+   102		for it.word_idx < len(it.array.bits) && word >> it.bit_idx == 0 {
+   103			it.word_idx += 1
+   104			it.bit_idx = 0
+   105			word = it.array.bits[it.word_idx] if len(it.array.bits) > it.word_idx else 0
+--
+   198	unset :: proc(ba: ^Bit_Array, #any_int index: uint, allocator := context.allocator) -> (ok: bool) {
+   199	
+   200		idx := int(index) - ba.bias
+   201	
+   202		if ba == nil || int(index) < ba.bias { return false }
+   203		context.allocator = allocator
+   204	
+   205		leg_index := idx >> INDEX_SHIFT
+    49	fe_carry_pow2k :: proc (out1: ^Tight_Field_Element, arg1: ^Loose_Field_Element, arg2: uint) {
+    50		// Special case: `arg1^(2 * 0) = 1`, though this should never happen.
+    51		if arg2 == 0 {
+    52			fe_one(out1)
+    53			return
+    54		}
+    55	
+    56		fe_carry_square(out1, arg1)
+    57		for _ in 1..<arg2 {
+    58			fe_carry_square(out1, fe_relax_cast(out1))
+    59		}
+    67	fe_carry_invsqrt :: proc (out1: ^Tight_Field_Element, arg1: ^Loose_Field_Element) -> int {
+    68		// Inverse square root taken from Monocypher.
+    69	
+    70		tmp1, tmp2, tmp3: Tight_Field_Element = ---, ---, ---
+    71	
+    72		// t0 = x^((p-5)/8)
+    73		// Can be achieved with a simple double & add ladder,
+    74		// but it would be slower.
+    75		fe_carry_pow2k(&tmp1, arg1, 1)
+    76		fe_carry_pow2k(&tmp2, fe_relax_cast(&tmp1), 2)
+    77		fe_carry_mul(&tmp2, arg1, fe_relax_cast(&tmp2))
+   129	fe_carry_inv :: proc (out1: ^Tight_Field_Element, arg1: ^Loose_Field_Element) {
+   130		tmp1: Tight_Field_Element
+   131	
+   132		fe_carry_square(&tmp1, arg1)
+   133		_ = fe_carry_invsqrt(&tmp1, fe_relax_cast(&tmp1))
+   134		fe_carry_square(&tmp1, fe_relax_cast(&tmp1))
+   135		fe_carry_mul(out1, fe_relax_cast(&tmp1), arg1)
+   136	
+   137		mem.zero_explicit(&tmp1, size_of(tmp1))
+   138	}
+    73	fe_carry_mul :: proc (out1: ^Tight_Field_Element, arg1, arg2: ^Loose_Field_Element) {
+    74		x2, x1 := bits.mul_u64(arg1[4], (arg2[4] * 0x13))
+    75		x4, x3 := bits.mul_u64(arg1[4], (arg2[3] * 0x13))
+    76		x6, x5 := bits.mul_u64(arg1[4], (arg2[2] * 0x13))
+    77		x8, x7 := bits.mul_u64(arg1[4], (arg2[1] * 0x13))
+    78		x10, x9 := bits.mul_u64(arg1[3], (arg2[4] * 0x13))
+    79		x12, x11 := bits.mul_u64(arg1[3], (arg2[3] * 0x13))
+    80		x14, x13 := bits.mul_u64(arg1[3], (arg2[2] * 0x13))
+    81		x16, x15 := bits.mul_u64(arg1[2], (arg2[4] * 0x13))
+    82		x18, x17 := bits.mul_u64(arg1[2], (arg2[3] * 0x13))
+    83		x20, x19 := bits.mul_u64(arg1[1], (arg2[4] * 0x13))
+--
+   282	fe_sub :: proc "contextless" (out1: ^Loose_Field_Element, arg1, arg2: ^Tight_Field_Element) {
+   283		x1 := ((0xfffffffffffda + arg1[0]) - arg2[0])
+--
+   373		x62 := (u8(x61) & 0xff)
+   374		x63 := (x61 >> 8)
+   375		x64 := (u8(x63) & 0xff)
+   376		x65 := fiat.u1((x63 >> 8))
+   377		x66 := (x23 + u64(x65))
+   378		x67 := (u8(x66) & 0xff)
+   379		x68 := (x66 >> 8)
+   380		x69 := (u8(x68) & 0xff)
+--
+   578	fe_one :: proc "contextless" (out1: ^Tight_Field_Element) {
+   579		out1[0] = 1
+   580		out1[1] = 0
+   581		out1[2] = 0
+   582		out1[3] = 0
+   583		out1[4] = 0
+    55	_addcarryx_u51 :: #force_inline proc "contextless" (arg1: fiat.u1, arg2, arg3: u64) -> (out1: u64, out2: fiat.u1) {
+    56		x1 := ((u64(arg1) + arg2) + arg3)
+    57		x2 := (x1 & 0x7ffffffffffff)
+    58		x3 := fiat.u1((x1 >> 51))
+    59		out1 = x2
+    60		out2 = x3
+    61		return
+--
+   172	fe_carry_square :: proc (out1: ^Tight_Field_Element, arg1: ^Loose_Field_Element) {
+   173		x1 := (arg1[4] * 0x13)
+   174		x2 := (x1 * 0x2)
+   175		x3 := (arg1[4] * 0x2)
+   176		x4 := (arg1[3] * 0x13)
+   177		x5 := (x4 * 0x2)
+   178		x6 := (arg1[3] * 0x2)
+   179		x7 := (arg1[2] * 0x2)
+   180		x8 := (arg1[1] * 0x2)
+   181		x10, x9 := bits.mul_u64(arg1[4], x1)
+   182		x12, x11 := bits.mul_u64(arg1[3], x2)
+   529	fe_carry_scmul_121666 :: proc (out1: ^Tight_Field_Element, arg1: ^Loose_Field_Element) {
+   530		x2, x1 := bits.mul_u64(0x1db42, arg1[4])
+   531		x4, x3 := bits.mul_u64(0x1db42, arg1[3])
+   532		x6, x5 := bits.mul_u64(0x1db42, arg1[2])
+   533		x8, x7 := bits.mul_u64(0x1db42, arg1[1])
+   534		x10, x9 := bits.mul_u64(0x1db42, arg1[0])
+   535		x11 := ((x9 >> 51) | ((x10 << 13) & 0xffffffffffffffff))
+   536		x12 := (x9 & 0x7ffffffffffff)
+   537		x13, x14 := bits.add_u64(x11, x7, u64(0x0))
+   538		x15 := (u64(fiat.u1(x14)) + x8)
+   539		x16 := ((x13 >> 51) | ((x15 << 13) & 0xffffffffffffffff))
+    78	fe_carry_mul :: proc (out1: ^Tight_Field_Element, arg1, arg2: ^Loose_Field_Element) {
+    79		x2, x1 := bits.mul_u64(arg1[2], (arg2[2] * 0x5))
+    80		x4, x3 := bits.mul_u64(arg1[2], (arg2[1] * 0xa))
+    81		x6, x5 := bits.mul_u64(arg1[1], (arg2[2] * 0xa))
+    82		x8, x7 := bits.mul_u64(arg1[2], arg2[0])
+    83		x10, x9 := bits.mul_u64(arg1[1], (arg2[1] * 0x2))
+    84		x12, x11 := bits.mul_u64(arg1[1], arg2[0])
+    85		x14, x13 := bits.mul_u64(arg1[0], arg2[2])
+    86		x16, x15 := bits.mul_u64(arg1[0], arg2[1])
+    87		x18, x17 := bits.mul_u64(arg1[0], arg2[0])
+    88		x19, x20 := bits.add_u64(x5, x3, u64(0x0))
+--
+   186	fe_sub :: proc "contextless" (out1: ^Loose_Field_Element, arg1, arg2: ^Tight_Field_Element) {
+   187		x1 := ((0x1ffffffffff6 + arg1[0]) - arg2[0])
+   188		x2 := ((0xffffffffffe + arg1[1]) - arg2[1])
+--
+   278		x2 := (u64(arg1[15]) << 33)
+   279		x3 := (u64(arg1[14]) << 25)
+   280		x4 := (u64(arg1[13]) << 17)
+   281		x5 := (u64(arg1[12]) << 9)
+   282		x6 := (u64(arg1[11]) * u64(0x2))
+   283		x7 := (u64(arg1[10]) << 36)
+   284		x8 := (u64(arg1[9]) << 28)
+   123	fe_carry_square :: proc (out1: ^Tight_Field_Element, arg1: ^Loose_Field_Element) {
+   124		x1 := (arg1[2] * 0x5)
+   125		x2 := (x1 * 0x2)
+   126		x3 := (arg1[2] * 0x2)
+   127		x4 := (arg1[1] * 0x2)
+   128		x6, x5 := bits.mul_u64(arg1[2], x1)
+   129		x8, x7 := bits.mul_u64(arg1[1], (x2 * 0x2))
+   130		x10, x9 := bits.mul_u64(arg1[1], (arg1[1] * 0x2))
+   131		x12, x11 := bits.mul_u64(arg1[0], x3)
+   132		x14, x13 := bits.mul_u64(arg1[0], x4)
+   133		x16, x15 := bits.mul_u64(arg1[0], arg1[0])
+    32	init :: proc (ctx: ^Context, key, nonce: []byte) {
+    33		if len(key) != KEY_SIZE {
+    34			panic("crypto/chacha20: invalid ChaCha20 key size")
+    35		}
+    36		if n_len := len(nonce); n_len != NONCE_SIZE && n_len != XNONCE_SIZE {
+    37			panic("crypto/chacha20: invalid (X)ChaCha20 nonce size")
+    38		}
+    39	
+    40		k, n := key, nonce
+    41	
+    42		// Derive the XChaCha20 subkey and sub-nonce via HChaCha20.
+--
+    98	xor_bytes :: proc (ctx: ^Context, dst, src: []byte) {
+    99		assert(ctx._is_initialized)
+   100	
+   101		// TODO: Enforcing that dst and src alias exactly or not at all
+   102		// is a good idea, though odd aliasing should be extremely uncommon.
+   103	
+   104		src, dst := src, dst
+--
+   132			for i := 0; i < to_xor; i = i + 1 {
+   133				dst[i] = buffered_keystream[i] ~ src[i]
+   134			}
+--
+   142	keystream_bytes :: proc (ctx: ^Context, dst: []byte) {
+--
+   186		// the IETF 32-bit counter, for XChaCha20 most common
+   187		// implementations allow for a 64-bit counter.
+   188		//
+   189		// Honestly, the answer here is "use a MRAE primitive", but
+   190		// go with common practice in the case of XChaCha20.
+   191		if ctx._is_ietf_flavor {
+   192			if u64(ctx._s[12]) + u64(nr_blocks) > 0xffffffff {
+   193				panic("crypto/chacha20: maximum ChaCha20 keystream per nonce reached")
+   194			}
+--
+   444	_hchacha20 :: proc (dst, key, nonce: []byte) {
+   445		x0, x1, x2, x3 := _SIGMA_0, _SIGMA_1, _SIGMA_2, _SIGMA_3
+   446		x4 := util.U32_LE(key[0:4])
+   447		x5 := util.U32_LE(key[4:8])
+   448		x6 := util.U32_LE(key[8:12])
+   449		x7 := util.U32_LE(key[12:16])
+   450		x8 := util.U32_LE(key[16:20])
+   451		x9 := util.U32_LE(key[20:24])
+   452		x10 := util.U32_LE(key[24:28])
+   453		x11 := util.U32_LE(key[28:32])
+   454		x12 := util.U32_LE(nonce[0:4])
+    84	seek :: proc (ctx: ^Context, block_nr: u64) {
+    85		assert(ctx._is_initialized)
+    86	
+    87		if ctx._is_ietf_flavor {
+    88			if block_nr > _MAX_CTR_IETF {
+    89				panic("crypto/chacha20: attempted to seek past maximum counter")
+    90			}
+    91		} else {
+    92			ctx._s[13] = u32(block_nr >> 32)
+    93		}
+    94		ctx._s[12] = u32(block_nr)
+    98	xor_bytes :: proc (ctx: ^Context, dst, src: []byte) {
+    99		assert(ctx._is_initialized)
+   100	
+   101		// TODO: Enforcing that dst and src alias exactly or not at all
+   102		// is a good idea, though odd aliasing should be extremely uncommon.
+   103	
+   104		src, dst := src, dst
+   105		if dst_len := len(dst); dst_len < len(src) {
+   106			src = src[:dst_len]
+   107		}
+   108	
+   142	keystream_bytes :: proc (ctx: ^Context, dst: []byte) {
+   143		assert(ctx._is_initialized)
+   144	
+   145		dst := dst
+   146		for remaining := len(dst); remaining > 0; {
+   147			// Process multiple blocks at once
+   148			if ctx._off == _BLOCK_SIZE {
+   149				if nr_blocks := remaining / _BLOCK_SIZE; nr_blocks > 0 {
+   150					direct_bytes := nr_blocks * _BLOCK_SIZE
+   151					_do_blocks(ctx, dst, nil, nr_blocks)
+   152					remaining -= direct_bytes
+   175	reset :: proc (ctx: ^Context) {
+   176		mem.zero_explicit(&ctx._s, size_of(ctx._s))
+   177		mem.zero_explicit(&ctx._buffer, size_of(ctx._buffer))
+   178	
+   179		ctx._is_initialized = false
+   180	}
+   181	
+   182	_do_blocks :: proc (ctx: ^Context, dst, src: []byte, nr_blocks: int) {
+   183		// Enforce the maximum consumed keystream per nonce.
+   184		//
+   185		// While all modern "standard" definitions of ChaCha20 use
+   182	_do_blocks :: proc (ctx: ^Context, dst, src: []byte, nr_blocks: int) {
+   183		// Enforce the maximum consumed keystream per nonce.
+   184		//
+   185		// While all modern "standard" definitions of ChaCha20 use
+   186		// the IETF 32-bit counter, for XChaCha20 most common
+   187		// implementations allow for a 64-bit counter.
+   188		//
+   189		// Honestly, the answer here is "use a MRAE primitive", but
+   190		// go with common practice in the case of XChaCha20.
+   191		if ctx._is_ietf_flavor {
+   192			if u64(ctx._s[12]) + u64(nr_blocks) > 0xffffffff {
+   444	_hchacha20 :: proc (dst, key, nonce: []byte) {
+   445		x0, x1, x2, x3 := _SIGMA_0, _SIGMA_1, _SIGMA_2, _SIGMA_3
+   446		x4 := util.U32_LE(key[0:4])
+   447		x5 := util.U32_LE(key[4:8])
+   448		x6 := util.U32_LE(key[8:12])
+   449		x7 := util.U32_LE(key[12:16])
+   450		x8 := util.U32_LE(key[16:20])
+   451		x9 := util.U32_LE(key[20:24])
+   452		x10 := util.U32_LE(key[24:28])
+   453		x11 := util.U32_LE(key[28:32])
+   454		x12 := util.U32_LE(nonce[0:4])
+    15	_validate_common_slice_sizes :: proc (tag, key, nonce, aad, text: []byte) {
+    16		if len(tag) != TAG_SIZE {
+    17			panic("crypto/chacha20poly1305: invalid destination tag size")
+    18		}
+    19		if len(key) != KEY_SIZE {
+    20			panic("crypto/chacha20poly1305: invalid key size")
+    21		}
+    22		if len(nonce) != NONCE_SIZE {
+    23			panic("crypto/chacha20poly1305: invalid nonce size")
+    24		}
+    25	
+    47	encrypt :: proc (ciphertext, tag, key, nonce, aad, plaintext: []byte) {
+    48		_validate_common_slice_sizes(tag, key, nonce, aad, plaintext)
+    49		if len(ciphertext) != len(plaintext) {
+    50			panic("crypto/chacha20poly1305: invalid destination ciphertext size")
+    51		}
+    52	
+    53		stream_ctx: chacha20.Context = ---
+    54		chacha20.init(&stream_ctx, key, nonce)
+    55	
+    56		// otk = poly1305_key_gen(key, nonce)
+    57		otk: [poly1305.KEY_SIZE]byte = ---
+    93	decrypt :: proc (plaintext, tag, key, nonce, aad, ciphertext: []byte) -> bool {
+    94		_validate_common_slice_sizes(tag, key, nonce, aad, ciphertext)
+    95		if len(ciphertext) != len(plaintext) {
+    96			panic("crypto/chacha20poly1305: invalid destination plaintext size")
+    97		}
+    98	
+    99		// Note: Unlike encrypt, this can fail early, so use defer for
+   100		// sanitization rather than assuming control flow reaches certain
+   101		// points where needed.
+   102	
+   103		stream_ctx: chacha20.Context = ---
+    47	rand_bytes :: proc (dst: []byte) {
+    48		// zero-fill the buffer first
+    49		mem.zero_explicit(raw_data(dst), len(dst))
+    50	
+    51		_rand_bytes(dst)
+    52	}
+    13	sum :: proc (dst, msg, key: []byte) {
+    14		ctx: Context = ---
+    15	
+    16		init(&ctx, key)
+    17		update(&ctx, msg)
+    18		final(&ctx, dst)
+    19	}
+    20	
+    21	verify :: proc (tag, msg, key: []byte) -> bool {
+    22		ctx: Context = ---
+    23		derived_tag: [16]byte = ---
+--
+    26			panic("crypto/poly1305: invalid tag size")
+    27		}
+    28	
+    29		init(&ctx, key)
+    30		update(&ctx, msg)
+    31		final(&ctx, derived_tag[:])
+    32	
+--
+   135	reset :: proc (ctx: ^Context) {
+   136		mem.zero_explicit(&ctx._r, size_of(ctx._r))
+   137		mem.zero_explicit(&ctx._a, size_of(ctx._a))
+   138		mem.zero_explicit(&ctx._s, size_of(ctx._s))
+   139		mem.zero_explicit(&ctx._buffer, size_of(ctx._buffer))
+   140	
+   141		ctx._is_initialized = false
+   142	}
+   143	
+   144	_blocks :: proc (ctx: ^Context, msg: []byte, final := false) {
+   145		n: field.Tight_Field_Element = ---
+   146		final_byte := byte(!final)
+   147	
+   148		data := msg
+   149		data_len := len(data)
+    21	verify :: proc (tag, msg, key: []byte) -> bool {
+    22		ctx: Context = ---
+    23		derived_tag: [16]byte = ---
+    24	
+    25		if len(tag) != TAG_SIZE {
+    26			panic("crypto/poly1305: invalid tag size")
+    27		}
+    28	
+    29		init(&ctx, key)
+    30		update(&ctx, msg)
+    31		final(&ctx, derived_tag[:])
+    47	init :: proc (ctx: ^Context, key: []byte) {
+    48		if len(key) != KEY_SIZE {
+    49			panic("crypto/poly1305: invalid key size")
+    50		}
+    51	
+    52		// r = le_bytes_to_num(key[0..15])
+    53		// r = clamp(r) (r &= 0xffffffc0ffffffc0ffffffc0fffffff)
+    54		tmp_lo := util.U64_LE(key[0:8]) & 0x0ffffffc0fffffff
+    55		tmp_hi := util.U64_LE(key[8:16]) & 0xffffffc0ffffffc
+    56		field.fe_from_u64s(&ctx._r, tmp_lo, tmp_hi)
+    57	
+    70	update :: proc (ctx: ^Context, data: []byte) {
+    71		assert(ctx._is_initialized)
+    72	
+    73		msg := data
+    74		msg_len := len(data)
+    75	
+    76		// Handle leftover
+    77		if ctx._leftover > 0 {
+    78			want := min(_BLOCK_SIZE - ctx._leftover, msg_len)
+    79			copy_slice(ctx._buffer[ctx._leftover:], msg[:want])
+    80			msg_len = msg_len - want
+   107	final :: proc (ctx: ^Context, dst: []byte) {
+   108		assert(ctx._is_initialized)
+   109	
+   110		if len(dst) != TAG_SIZE {
+   111			panic("poly1305: invalid destination tag size")
+   112		}
+   113	
+   114		// Process remaining block
+   115		if ctx._leftover > 0 {
+   116			ctx._buffer[ctx._leftover] = 1
+   117			for i := ctx._leftover + 1; i < _BLOCK_SIZE; i = i + 1 {
+   135	reset :: proc (ctx: ^Context) {
+   136		mem.zero_explicit(&ctx._r, size_of(ctx._r))
+   137		mem.zero_explicit(&ctx._a, size_of(ctx._a))
+   138		mem.zero_explicit(&ctx._s, size_of(ctx._s))
+   139		mem.zero_explicit(&ctx._buffer, size_of(ctx._buffer))
+   140	
+   141		ctx._is_initialized = false
+   142	}
+   143	
+   144	_blocks :: proc (ctx: ^Context, msg: []byte, final := false) {
+   145		n: field.Tight_Field_Element = ---
+   144	_blocks :: proc (ctx: ^Context, msg: []byte, final := false) {
+   145		n: field.Tight_Field_Element = ---
+   146		final_byte := byte(!final)
+   147	
+   148		data := msg
+   149		data_len := len(data)
+   150		for data_len >= _BLOCK_SIZE {
+   151			// n = le_bytes_to_num(msg[((i-1)*16)..*i*16] | [0x01])
+   152			field.fe_from_bytes(&n, data[:_BLOCK_SIZE], final_byte, false)
+   153	
+   154			// a += n
+     4		_rand_bytes :: proc (dst: []byte) {
+     5			unimplemented("crypto: rand_bytes not supported on this OS")
+     6		}
+     7	}
+     9	_rand_bytes :: proc (dst: []byte) {
+    10		dst := dst
+    11		l := len(dst)
+    12	
+    13		for l > 0 {
+    14			to_read := min(l, _MAX_PER_CALL_BYTES)
+    15			ret := unix.sys_getrandom(raw_data(dst), to_read, 0)
+    16			if ret < 0 {
+    17				switch os.Errno(-ret) {
+    18				case os.EINTR:
+    19					// Call interupted by a signal handler, just retry the
+    10	_rand_bytes :: proc (dst: []byte) {
+    11		arc4random_buf(raw_data(dst), len(dst))
+    12	}
+    33	sum_bytes_1_3 :: proc (msg, key: []byte) -> u64 {
+    34	    ctx: Context
+    35	    hash: u64
+    36	    init(&ctx, key, 1, 3)
+    37	    update(&ctx, msg)
+    38	    final(&ctx, &hash)
+    39	    return hash
+    40	}
+    41	
+    42	// sum_string_to_buffer_1_3 will hash the given message with the key and write
+    43	// the computed hash into the provided destination buffer
+--
+   133	verify_u64_2_4 :: proc (tag: u64 msg, key: []byte) -> bool {
+   134	    return sum_bytes_2_4(msg, key) == tag
+   135	}
+   136	
+   137	// verify_bytes will check if the supplied tag matches with the output you 
+   138	// will get from the provided message and key
+   139	verify_bytes_2_4 :: proc (tag, msg, key: []byte) -> bool {
+   140	    derived_tag: [8]byte
+   141	    sum_bytes_to_buffer_2_4(msg, key, derived_tag[:])
+   142	    return crypto.compare_constant_time(derived_tag[:], tag) == 1
+   143	}
+--
+   233	}
+   234	
+   235	update :: proc(ctx: ^Context, data: []byte) {
+   236	    assert(ctx.is_initialized, "crypto/siphash: Context is not initialized")
+   237	    ctx.last_block = len(data) / 8 * 8
+   238	    ctx.buf = data
+   239	    i := 0
+   240	    m: u64
+   241	    for i < ctx.last_block {
+   242	        m = u64(ctx.buf[i] & 0xff)
+   243	        i += 1
+--
+   330	    ctx.v3 ~= ctx.v0
+    65	verify_u64_1_3 :: proc (tag: u64 msg, key: []byte) -> bool {
+    66	    return sum_bytes_1_3(msg, key) == tag
+    67	}
+    68	
+    69	// verify_bytes will check if the supplied tag matches with the output you 
+    70	// will get from the provided message and key
+    71	verify_bytes_1_3 :: proc (tag, msg, key: []byte) -> bool {
+    72	    derived_tag: [8]byte
+    73	    sum_bytes_to_buffer_1_3(msg, key, derived_tag[:])
+    74	    return crypto.compare_constant_time(derived_tag[:], tag) == 1
+    75	}
+--
+   165	sum_bytes_4_8 :: proc (msg, key: []byte) -> u64 {
+   166	    ctx: Context
+   167	    hash: u64
+   168	    init(&ctx, key, 4, 8)
+   169	    update(&ctx, msg)
+   170	    final(&ctx, &hash)
+   171	    return hash
+   172	}
+   173	
+   174	// sum_string_to_buffer_4_8 will hash the given message with the key and write
+   175	// the computed hash into the provided destination buffer
+--
+   235	update :: proc(ctx: ^Context, data: []byte) {
+   236	    assert(ctx.is_initialized, "crypto/siphash: Context is not initialized")
+   237	    ctx.last_block = len(data) / 8 * 8
+   238	    ctx.buf = data
+   239	    i := 0
+   240	    m: u64
+   241	    for i < ctx.last_block {
+--
+   265	    m |= u64(len(ctx.buf) << 56)
+   266	
+   267	    ctx.v3 ~= m
+    71	verify_bytes_1_3 :: proc (tag, msg, key: []byte) -> bool {
+    72	    derived_tag: [8]byte
+    73	    sum_bytes_to_buffer_1_3(msg, key, derived_tag[:])
+    74	    return crypto.compare_constant_time(derived_tag[:], tag) == 1
+    75	}
+    76	
+    77	verify_1_3 :: proc {
+    78	    verify_bytes_1_3,
+    79	    verify_u64_1_3,
+    80	}
+    81	
+--
+   171	    return hash
+   172	}
+   173	
+   174	// sum_string_to_buffer_4_8 will hash the given message with the key and write
+   175	// the computed hash into the provided destination buffer
+   176	sum_string_to_buffer_4_8 :: proc(msg, key: string, dst: []byte) {
+   177	    sum_bytes_to_buffer_4_8(transmute([]byte)(msg), transmute([]byte)(key), dst)
+   178	}
+   179	
+   180	// sum_bytes_to_buffer_4_8 will hash the given message with the key and write
+   181	// the computed hash into the provided destination buffer
+--
+   271	    }
+   272	
+   273	    ctx.v0 ~= m
+   274	    ctx.v2 ~= 0xff
+    90	sum_bytes_2_4 :: proc (msg, key: []byte) -> u64 {
+    91	    ctx: Context
+    92	    hash: u64
+    93	    init(&ctx, key, 2, 4)
+    94	    update(&ctx, msg)
+    95	    final(&ctx, &hash)
+    96	    return hash
+    97	}
+    98	
+    99	// sum_string_to_buffer_2_4 will hash the given message with the key and write
+   100	// the computed hash into the provided destination buffer
+--
+   197	verify_u64_4_8 :: proc (tag: u64 msg, key: []byte) -> bool {
+   198	    return sum_bytes_4_8(msg, key) == tag
+   199	}
+   200	
+--
+   290	    ctx.c_rounds = 0
+   291	    ctx.d_rounds = 0
+   292	    ctx.is_initialized = false
+   293	}
+   294	
+   295	Context :: struct {
+   133	verify_u64_2_4 :: proc (tag: u64 msg, key: []byte) -> bool {
+   134	    return sum_bytes_2_4(msg, key) == tag
+   135	}
+   136	
+   137	// verify_bytes will check if the supplied tag matches with the output you 
+   138	// will get from the provided message and key
+   139	verify_bytes_2_4 :: proc (tag, msg, key: []byte) -> bool {
+   140	    derived_tag: [8]byte
+   141	    sum_bytes_to_buffer_2_4(msg, key, derived_tag[:])
+   142	    return crypto.compare_constant_time(derived_tag[:], tag) == 1
+   143	}
+   139	verify_bytes_2_4 :: proc (tag, msg, key: []byte) -> bool {
+   140	    derived_tag: [8]byte
+   141	    sum_bytes_to_buffer_2_4(msg, key, derived_tag[:])
+   142	    return crypto.compare_constant_time(derived_tag[:], tag) == 1
+   143	}
+   144	
+   145	verify_2_4 :: proc {
+   146	    verify_bytes_2_4,
+   147	    verify_u64_2_4,
+   148	}
+   149	
